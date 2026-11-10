@@ -13,6 +13,8 @@ open (buyer pays in) ─▶ Funded ─▶ markDelivered (seller) ─▶ Delivere
    seller can refund the buyer at any point before the money moves
 ```
 
+Settling a deal credits `owed[account][token]`; each party then calls `withdraw(token)`.
+
 ## Run it
 
 ```sh
@@ -33,7 +35,7 @@ ARBITER=0xYourArbiter forge script script/Deploy.s.sol --rpc-url base_sepolia --
 ## Known limits (this is a draft, not audited)
 
 - **One trusted arbiter.** Whoever holds the arbiter key decides disputes. In production, use a multisig.
-- **Push payouts.** If USDC or USDT blacklists the recipient, the transfer reverts and the deal is stuck. Pull-based withdrawals would fix this.
+- **Pull payouts.** A blacklisted address can't withdraw its own share, but it no longer blocks the other party. Its credit stays in the contract.
 - **Unsupported tokens.** Fee-on-transfer tokens are rejected, and rebasing tokens aren't supported.
 - **No platform fee.** The contract takes no fee and has no upgrade path or pause switch.
 - **Not ready for real money.** It needs an audit first, and a legal check (Nigeria SEC digital-asset rules) before it handles users' funds.

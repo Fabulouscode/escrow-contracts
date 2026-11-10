@@ -8,6 +8,8 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 /// @title Escrow
 /// @notice Holds a buyer's stablecoin until the seller delivers. The buyer releases, or stays
 /// silent through the inspection window, or disputes and the arbiter splits the funds.
+/// Settled funds are credited, then each party withdraws, so one blocked address
+/// (e.g. a USDC/USDT blacklist) can't freeze the other party's money.
 contract Escrow is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -36,6 +38,7 @@ contract Escrow is ReentrancyGuard {
 
     uint256 public nextId = 1;
     mapping(uint256 => Deal) public deals;
+    mapping(address account => mapping(IERC20 token => uint256)) public owed;
 
     event Opened(uint256 indexed id, address indexed buyer, address indexed seller, address token, uint256 amount, uint64 deliverBy);
     event Delivered(uint256 indexed id, uint64 inspectUntil);
@@ -43,6 +46,7 @@ contract Escrow is ReentrancyGuard {
     event Refunded(uint256 indexed id, uint256 amount);
     event Disputed(uint256 indexed id);
     event Resolved(uint256 indexed id, uint256 toSeller, uint256 toBuyer);
+    event Withdrawn(address indexed account, address indexed token, uint256 amount);
 
     error InvalidDeal();
     error NotAllowed();
@@ -89,7 +93,7 @@ contract Escrow is ReentrancyGuard {
         emit Delivered(id, d.inspectUntil);
     }
 
-    function release(uint256 id) external nonReentrant {
+    function release(uint256 id) external {
         Deal storage d = _deal(id);
         if (msg.sender != d.buyer) revert NotAllowed();
         if (d.status != Status.Funded && d.status != Status.Delivered) revert WrongStatus(d.status);
@@ -97,7 +101,7 @@ contract Escrow is ReentrancyGuard {
     }
 
     /// @notice Seller collects once the inspection window passes without a dispute.
-    function claim(uint256 id) external nonReentrant {
+    function claim(uint256 id) external {
         Deal storage d = _deal(id);
         if (msg.sender != d.seller) revert NotAllowed();
         _expect(d, Status.Delivered);
@@ -106,7 +110,7 @@ contract Escrow is ReentrancyGuard {
     }
 
     /// @notice Buyer takes the money back if the seller never marked delivery in time.
-    function refundExpired(uint256 id) external nonReentrant {
+    function refundExpired(uint256 id) external {
         Deal storage d = _deal(id);
         if (msg.sender != d.buyer) revert NotAllowed();
         _expect(d, Status.Funded);
@@ -115,7 +119,7 @@ contract Escrow is ReentrancyGuard {
     }
 
     /// @notice Seller can always give the buyer their money back.
-    function refund(uint256 id) external nonReentrant {
+    function refund(uint256 id) external {
         Deal storage d = _deal(id);
         if (msg.sender != d.seller) revert NotAllowed();
         if (d.status != Status.Funded && d.status != Status.Delivered && d.status != Status.Disputed) {
@@ -134,7 +138,7 @@ contract Escrow is ReentrancyGuard {
         emit Disputed(id);
     }
 
-    function resolve(uint256 id, uint256 toSeller) external nonReentrant {
+    function resolve(uint256 id, uint256 toSeller) external {
         Deal storage d = _deal(id);
         if (msg.sender != arbiter) revert NotAllowed();
         _expect(d, Status.Disputed);
@@ -142,14 +146,22 @@ contract Escrow is ReentrancyGuard {
 
         uint256 toBuyer = d.amount - toSeller;
         d.status = Status.Resolved;
-        if (toSeller > 0) d.token.safeTransfer(d.seller, toSeller);
-        if (toBuyer > 0) d.token.safeTransfer(d.buyer, toBuyer);
+        owed[d.seller][d.token] += toSeller;
+        owed[d.buyer][d.token] += toBuyer;
         emit Resolved(id, toSeller, toBuyer);
+    }
+
+    function withdraw(IERC20 token) external nonReentrant {
+        uint256 amount = owed[msg.sender][token];
+        if (amount == 0) revert NotAllowed();
+        owed[msg.sender][token] = 0;
+        token.safeTransfer(msg.sender, amount);
+        emit Withdrawn(msg.sender, address(token), amount);
     }
 
     function _payout(uint256 id, Deal storage d, Status next, address to) private {
         d.status = next;
-        d.token.safeTransfer(to, d.amount);
+        owed[to][d.token] += d.amount;
         if (next == Status.Released) emit Released(id, d.amount);
         else emit Refunded(id, d.amount);
     }

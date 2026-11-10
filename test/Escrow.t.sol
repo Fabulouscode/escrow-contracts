@@ -35,6 +35,19 @@ contract FeeToken is ERC20 {
     }
 }
 
+contract BlacklistUSD is MockUSD {
+    mapping(address => bool) public blocked;
+
+    function block_(address who) external {
+        blocked[who] = true;
+    }
+
+    function _update(address from, address to, uint256 value) internal override {
+        require(!blocked[from] && !blocked[to], "blacklisted");
+        super._update(from, to, value);
+    }
+}
+
 contract EscrowTest is Test {
     Escrow escrow;
     MockUSD usd;
@@ -59,6 +72,11 @@ contract EscrowTest is Test {
         id = escrow.open(seller, usd, AMOUNT, uint64(block.timestamp + 7 days));
     }
 
+    function _withdraw(address who) internal {
+        vm.prank(who);
+        escrow.withdraw(usd);
+    }
+
     function _status(uint256 id) internal view returns (Escrow.Status s) {
         (,,,,,, s) = escrow.deals(id);
     }
@@ -75,9 +93,12 @@ contract EscrowTest is Test {
         escrow.markDelivered(id);
         vm.prank(buyer);
         escrow.release(id);
+        assertEq(escrow.owed(seller, usd), AMOUNT);
 
+        _withdraw(seller);
         assertEq(usd.balanceOf(seller), AMOUNT);
         assertEq(usd.balanceOf(address(escrow)), 0);
+        assertEq(escrow.owed(seller, usd), 0);
     }
 
     function test_releaseTwice_reverts() public {
@@ -102,6 +123,7 @@ contract EscrowTest is Test {
         vm.warp(block.timestamp + INSPECTION + 1);
         vm.prank(seller);
         escrow.claim(id);
+        _withdraw(seller);
         assertEq(usd.balanceOf(seller), AMOUNT);
     }
 
@@ -115,6 +137,7 @@ contract EscrowTest is Test {
         vm.warp(block.timestamp + 7 days + 1);
         vm.prank(buyer);
         escrow.refundExpired(id);
+        _withdraw(buyer);
         assertEq(usd.balanceOf(buyer), 1_000e6);
     }
 
@@ -175,9 +198,49 @@ contract EscrowTest is Test {
 
         vm.prank(arbiter);
         escrow.resolve(id, toSeller);
+        if (toSeller > 0) _withdraw(seller);
+        if (toSeller < AMOUNT) _withdraw(buyer);
 
         assertEq(usd.balanceOf(seller), toSeller);
         assertEq(usd.balanceOf(buyer), 1_000e6 - toSeller);
         assertEq(usd.balanceOf(address(escrow)), 0);
+    }
+
+    function test_withdrawTwice_reverts() public {
+        uint256 id = _open();
+        vm.prank(buyer);
+        escrow.release(id);
+        _withdraw(seller);
+
+        vm.prank(seller);
+        vm.expectRevert(Escrow.NotAllowed.selector);
+        escrow.withdraw(usd);
+    }
+
+    function test_blacklistedSeller_doesNotFreezeBuyer() public {
+        BlacklistUSD bl = new BlacklistUSD();
+        bl.mint(buyer, AMOUNT);
+        vm.startPrank(buyer);
+        bl.approve(address(escrow), AMOUNT);
+        uint256 id = escrow.open(seller, bl, AMOUNT, uint64(block.timestamp + 7 days));
+        vm.stopPrank();
+
+        vm.prank(seller);
+        escrow.markDelivered(id);
+        vm.prank(buyer);
+        escrow.dispute(id);
+        vm.prank(arbiter);
+        escrow.resolve(id, 200e6);
+
+        bl.block_(seller);
+
+        vm.prank(seller);
+        vm.expectRevert(bytes("blacklisted"));
+        escrow.withdraw(bl);
+
+        vm.prank(buyer);
+        escrow.withdraw(bl);
+        assertEq(bl.balanceOf(buyer), 300e6);
+        assertEq(escrow.owed(seller, bl), 200e6);
     }
 }
