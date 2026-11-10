@@ -34,6 +34,18 @@ forge script script/Demo.s.sol:Demo --rpc-url http://127.0.0.1:8545 --broadcast 
 
 It runs two deals (a straight sale, and a dispute the arbiter splits 180/120) and prints each step.
 
+## Web app
+
+`web/` is a Next.js + wagmi app where a buyer pays in, the seller marks delivery, the buyer releases or disputes, the arbiter settles and each side withdraws.
+
+```sh
+anvil                                                                                    # terminal 1
+forge script script/DeployLocal.s.sol:DeployLocal --rpc-url http://127.0.0.1:8545 --broadcast
+cd web && npm install && npm run dev                                                     # http://localhost:3000
+```
+
+Locally, the **Act as Buyer / Seller / Arbiter** switch uses Anvil's built-in accounts, so no wallet extension is needed. For Base Sepolia, set the variables in `web/.env.example`; users then connect with MetaMask or Coinbase Wallet. After changing the contract, run `forge build && npm --prefix web run abi`.
+
 ## Deploy to a testnet (Base Sepolia)
 
 ```sh
