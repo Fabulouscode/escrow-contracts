@@ -30,7 +30,7 @@ export BASE_SEPOLIA_RPC_URL=https://sepolia.base.org
 ARBITER=0xYourArbiter forge script script/Deploy.s.sol --rpc-url base_sepolia --account dev --broadcast
 ```
 
-`--account dev` uses a keystore made with `cast wallet import dev --interactive`. Never put a private key in `.env` or in shell history.
+`--account dev` uses an encrypted keystore: create one with `cast wallet new ~/.foundry/keystores dev` (or import an existing key with `cast wallet import dev --interactive`). Never put a private key in `.env` or in shell history.
 
 ## Known limits (this is a draft, not audited)
 
