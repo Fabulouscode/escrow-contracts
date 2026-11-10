@@ -23,6 +23,17 @@ forge install foundry-rs/forge-std OpenZeppelin/openzeppelin-contracts
 forge test -vv
 ```
 
+## Watch it work locally
+
+No faucet needed: Anvil runs a private chain with funded test accounts.
+
+```sh
+anvil                      # terminal 1
+forge script script/Demo.s.sol:Demo --rpc-url http://127.0.0.1:8545 --broadcast   # terminal 2
+```
+
+It runs two deals (a straight sale, and a dispute the arbiter splits 180/120) and prints each step.
+
 ## Deploy to a testnet (Base Sepolia)
 
 ```sh
